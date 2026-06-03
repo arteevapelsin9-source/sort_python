@@ -1,0 +1,85 @@
+﻿import multiprocessing
+import os
+import tempfile
+import shutil
+
+def split_file(file_name, chunk_size=10000):
+    """Разбивает файл на сортированные части"""
+    chunks = []
+    with open(file_name, 'r') as f:
+        batch = []
+        for line in f:
+            line = line.strip()
+            if line:
+                batch.append(line + '\n')
+                if len(batch) >= chunk_size:
+                    batch.sort(key=lambda x: int(x.strip()))
+                    tmp = tempfile.NamedTemporaryFile(delete=False, mode='w+t')
+                    tmp.writelines(batch)
+                    chunks.append(tmp.name)
+                    batch = []
+        if batch:
+            batch.sort(key=lambda x: int(x.strip()))
+            tmp = tempfile.NamedTemporaryFile(delete=False, mode='w+t')
+            tmp.writelines(batch)
+            chunks.append(tmp.name)
+    return chunks
+
+def sort_chunk(chunk_file):
+    """Сортирует один файл"""
+    with open(chunk_file, 'r') as f:
+        lines = f.readlines()
+    lines.sort(key=lambda x: int(x.strip()))
+    with open(chunk_file, 'w') as f:
+        f.writelines(lines)
+    return chunk_file
+
+def merge_two(f1, f2, out):
+    """Сливает два файла"""
+    with open(f1) as a, open(f2) as b, open(out, 'w') as c:
+        line_a, line_b = a.readline(), b.readline()
+        while line_a and line_b:
+            if int(line_a.strip()) <= int(line_b.strip()):
+                c.write(line_a)
+                line_a = a.readline()
+            else:
+                c.write(line_b)
+                line_b = b.readline()
+        c.write(line_a or line_b)
+        c.writelines(a.readlines() if line_a else b.readlines())
+
+def merge_all(files):
+    """Сливает все файлы"""
+    while len(files) > 1:
+        new_files = []
+        for i in range(0, len(files), 2):
+            if i + 1 < len(files):
+                tmp = tempfile.NamedTemporaryFile(delete=False, mode='w+t')
+                merge_two(files[i], files[i+1], tmp.name)
+                new_files.append(tmp.name)
+                os.unlink(files[i])
+                os.unlink(files[i+1])
+            else:
+                new_files.append(files[i])
+        files = new_files
+    return files[0]
+
+def sort_large_file(filename, chunk_size=50000):
+    """Главная функция сортировки"""
+    print("1. Разбиение и сортировка частей...")
+    chunks = split_file(filename, chunk_size)
+    
+    print(f"2. Параллельная сортировка {len(chunks)} частей...")
+    with multiprocessing.Pool() as pool:
+        chunks = pool.map(sort_chunk, chunks)
+    
+    print("3. Слияние частей...")
+    result = merge_all(chunks)
+    
+    output = 'sorted_' + filename
+    shutil.move(result, output)
+    print(f"Готово! Результат: {output}")
+
+if __name__ == '__main__':
+    sort_large_file('numbers.txt')
+
